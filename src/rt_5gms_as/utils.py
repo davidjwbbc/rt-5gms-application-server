@@ -48,7 +48,11 @@ def find_executable_on_path(cmd, *, verify=None, extra_paths=None):
 
 def async_create_task(*args, **kwargs):
     'Wrapper for asyncio.create_task to remove unimplemented kwargs'
-    allowedkwargs = {key: value for key,value in kwargs.items() if key in asyncio.create_task.__kwdefaults__}
+    if asyncio.create_task.__kwdefaults__ is not None:
+        allowedkeys = asyncio.create_task.__kwdefaults__.keys()
+    else:
+        allowedkeys = []
+    allowedkwargs = {key: value for key,value in kwargs.items() if key in allowedkeys}
     return asyncio.create_task(*args, **allowedkwargs)
 
 async def traverse_directory_tree(rootpath: str, filtcoro: Callable[[str,bool,Any],Awaitable[Any]], result: Any):

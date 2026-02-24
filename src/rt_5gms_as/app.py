@@ -32,7 +32,6 @@ import argparse
 import asyncio
 import hypercorn
 import hypercorn.asyncio
-import pkg_resources
 import signal
 import sys
 
@@ -49,11 +48,18 @@ from .openapi_5g.apis.default_api import router as m3_router
 __pkg = None
 __pkg_version = 'Devel'
 try:
+    import pkg_resources
     __pkg = pkg_resources.get_distribution('rt-5gms-application-server')
     if __pkg is not None:
         __pkg_version = __pkg.version
 except:
-    pass
+    try:
+        import importlib
+        __pkg = importlib.metadata.distribution('rt-5gms-application-server')
+        if __pkg is not None:
+            __pkg_version = __pkg.version
+    except:
+        pass
 
 _app_server_hdr = '5GMSd-AS/'+__pkg_version
 
