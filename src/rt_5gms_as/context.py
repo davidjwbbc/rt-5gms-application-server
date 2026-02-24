@@ -70,6 +70,7 @@ uwsgi_temp = %(root_temp)s/uwsgi-tmp
 scgi_temp = %(root_temp)s/scgi-tmp
 pid_path = %(root_temp)s/rt-5gms-as-nginx.pid
 resolvers = 127.0.0.53
+cmcd_response_url = http://10.64.39.13:3000/cmcd/response-mode
 '''
 
 class Context(object):
