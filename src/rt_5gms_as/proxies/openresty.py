@@ -96,6 +96,7 @@ class OpenRestyLocationConfig(object):
             ret += f'{prefix}  rewrite "{regex}" "{replace}" break;\n'
         ret += f'''{prefix}  proxy_cache_key "{self.provisioning_session}:u=$uri";
 {prefix}  rewrite_by_lua_block {{
+{prefix}    cmcd_response_json.doResponse()
 {prefix}    -- ngx.log(ngx.DEBUG,"rewrite_by_lua_block(",ngx.var.uri,", ",ngx.var.downstream_prefix_url,")")
 {prefix}    local uri = ngx.var.uri
 {prefix}    if uri:sub(1,{len(self.path_prefix)}) == "{self.path_prefix}" then

@@ -1,26 +1,26 @@
+-- ==============================================================================
+--  5G-MAG Reference Tools: Build & POST CMCD v2 (response-mode) JSON
+-- ==============================================================================
+-- 
+--  File: cmcd_response_json.lua
+--  License: 5G-MAG Public License (v1.0)
+--  Author: Shilin Ding
+--  Copyright: (C) 2026 Qualcomm Corporation
+-- 
+--  For full license terms please see the LICENSE file distributed with this
+--  program. If this file is missing then the license can be retrieved from
+--  https://drive.google.com/file/d/1cinCiA778IErENZ3JN52VFW-1ffHpx7Z/view
+-- 
+--  This is the 5G-MAG Reference Tools 5GMS AS application context module.
+--  This file handles the class which will hold the current run-time context of
+--  the AS.
+-- ==============================================================================
 
-#==============================================================================
-# 5G-MAG Reference Tools: Build & POST CMCD v2 (response-mode) JSON
-#==============================================================================
-#
-# File: cmcd_response_json.lua
-# License: 5G-MAG Public License (v1.0)
-# Author: Shilin Ding
-# Copyright: (C) 2026 Qualcomm Corporation
-#
-# For full license terms please see the LICENSE file distributed with this
-# program. If this file is missing then the license can be retrieved from
-# https://drive.google.com/file/d/1cinCiA778IErENZ3JN52VFW-1ffHpx7Z/view
-#
-# This is the 5G-MAG Reference Tools 5GMS AS application context module.
-# This file handles the class which will hold the current run-time context of
-# the AS.
-#==============================================================================
+local cmcd_response_json = {}
 
 local cjson = require "cjson.safe"
 local http  = require "resty.http"
-
-ngx.log(ngx.NOTICE, ">>> CMCD LUA (response-mode) TRIGGERED <<<")
+local ngx = require "ngx"
 
 -- ---------------- parse CMCD v1 k/v (from query & headers) ----------------
 local function parse_kv(s)
@@ -146,6 +146,7 @@ local function build_origin_headers_in_request()
   local in_hdrs = ngx.req.get_headers()
   local origin  = in_hdrs["Origin"]  or in_hdrs["origin"]
   local referer = in_hdrs["Referer"] or in_hdrs["referer"]
+  local user_agent = in_hdrs["User-Agent"] or in_hdrs["user-agent"]
 
   -- Fallback to values configured via shared dict (init_by_lua)
   local dict = ngx.shared.cmcd_cfg
@@ -155,7 +156,9 @@ local function build_origin_headers_in_request()
   if (not referer or referer == "") and dict then
     referer = dict:get("spoof_referer")
   end
-
+  if (not user_agent or user_agent == "") then
+    user_agent = "CMCDResponseJSON/1.0"
+  end
 
   -- Final fallback: synthesize a valid Origin/Referer to avoid nil/empty values
   -- (required by some collectors and log pipelines, e.g. Fluentd)
@@ -170,7 +173,7 @@ local function build_origin_headers_in_request()
   end
 
   ngx.log(ngx.NOTICE, "[cmcd][response] using Origin=", origin, " Referer=", referer)
-  return { ["Origin"] = origin, ["Referer"] = referer }
+  return { ["Origin"] = origin, ["Referer"] = referer, ["User-Agent"] = user_agent }
 end
 
 -- ---------------- async POST (executed via ngx.timer) ----------------
@@ -205,39 +208,45 @@ local function async_post_json(premature, url, payload, extra_headers)
 end
 
 -- ---------------- main ----------------
-local v1 = extract_v1()
-if next(v1) then
-  local dict = ngx.shared.cmcd_cfg
-  local url  = dict and (dict:get("collector_response_url") or dict:get("collector_event_url"))
-  if not url or url == "" then
-    ngx.log(ngx.ERR, "[cmcd][response] collector url not configured")
-    return
-  end
-  url = (url:gsub("/+$",""))
-  if not url:match("/cmcd/response%-mode$") then
-    url = url:gsub("/cmcd/event%-mode$","/cmcd/response-mode")
-    if not url:match("/cmcd/response%-mode$") then
-      url = url .. "/cmcd/response-mode"
+local function cmcd_response_json_do_response()
+  ngx.log(ngx.NOTICE, ">>> CMCD LUA (response-mode) TRIGGERED <<<")
+  local v1 = extract_v1()
+  if next(v1) then
+    local dict = ngx.shared.cmcd_cfg
+    local url  = dict and (dict:get("collector_response_url") or dict:get("collector_event_url"))
+    if not url or url == "" then
+      ngx.log(ngx.ERR, "[cmcd][response] collector url not configured")
+      return
     end
-  end
+    url = (url:gsub("/+$",""))
+    if not url:match("/cmcd/response%-mode$") then
+      url = url:gsub("/cmcd/event%-mode$","/cmcd/response-mode")
+      if not url:match("/cmcd/response%-mode$") then
+        url = url .. "/cmcd/response-mode"
+      end
+    end
 
-  local resp = build_response_v2(v1)
-  if not resp then
-    return
-  end
+    local resp = build_response_v2(v1)
+    if not resp then
+      return
+    end
   
-  -- NOTE: Extract Origin/Referer before scheduling the timer
-  --       since ngx.req / ngx.var are unavailable inside timer callbacks
-  local origin_headers = build_origin_headers_in_request()
+    -- NOTE: Extract Origin/Referer before scheduling the timer
+    --       since ngx.req / ngx.var are unavailable inside timer callbacks
+    local origin_headers = build_origin_headers_in_request()
 
-  ngx.log(ngx.NOTICE, "[cmcd][response] v2 payload = ", cjson.encode(resp))
+    ngx.log(ngx.NOTICE, "[cmcd][response] v2 payload = ", cjson.encode(resp))
  
-  -- Schedule async POST with URL, payload and pre-built headers
-  -- Do not access ngx.req / ngx.var inside the timer callback
-  local ok, err = ngx.timer.at(0, async_post_json, url, resp, origin_headers)
-  if not ok then
-    ngx.log(ngx.ERR, "[cmcd][response] failed to schedule post timer: ", err or "nil")
+    -- Schedule async POST with URL, payload and pre-built headers
+    -- Do not access ngx.req / ngx.var inside the timer callback
+    local ok, err = ngx.timer.at(0, async_post_json, url, resp, origin_headers)
+    if not ok then
+      ngx.log(ngx.ERR, "[cmcd][response] failed to schedule post timer: ", err or "nil")
+    end
+  else
+    ngx.log(ngx.WARN, "[cmcd][response] no CMCD found: ", ngx.var.request_uri or "")
   end
-else
-  ngx.log(ngx.WARN, "[cmcd][response] no CMCD found: ", ngx.var.request_uri or "")
 end
+cmcd_response_json.doResponse = cmcd_response_json_do_response
+
+return cmcd_response_json

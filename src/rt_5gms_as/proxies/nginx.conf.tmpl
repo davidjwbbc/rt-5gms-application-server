@@ -47,6 +47,7 @@ http {{
   scgi_temp_path {scgi_temp_path};
   lua_package_path "{scriptdir}/?.lua;;";
   lua_shared_dict dynredirmap 10m;
+  lua_shared_dict cmcd_cfg 32k;
   resolver {resolvers};
   proxy_ssl_server_name on;
 
@@ -60,6 +61,7 @@ http {{
     dict:set("collector_event_url", "{cmcd_response_url}")
 	
     dynredir = require "dynamicredirect"
+    cmcd_response_json = require "cmcd_response_json"
 
     math.randomseed(os.time())
 
@@ -69,27 +71,6 @@ http {{
     end
   }}
   
-	# ===============================
-	# CMCD → event-mode JSON
-	# ===============================
-	location ^~ /media/ {
-		rewrite_by_lua_block {
-			ngx.log(ngx.ERR, "INLINE REWRITE HIT: ", ngx.var.request_uri)
-			dofile("/usr/local/openresty/nginx/lua/cmcd_response_json.lua")
-			}
-			
-		content_by_lua_block {
-			ngx.exit(204)
-		}
-	}
-  
-	rewrite_by_lua_block {
-		ngx.log(ngx.ERR, "SERVER REWRITE HIT: ", ngx.var.request_uri)
-	}
-		
-	log_by_lua_block {
-		ngx.log(ngx.ERR, "LOG PHASE HIT: ", ngx.var.request_uri)
-	}
 
 {server_configs}
 
@@ -104,5 +85,26 @@ http {{
     error_page 500 502 503 504 /50x.html;
     location = /50x.html {{
     }}
+    # ===============================
+    # CMCD → event-mode JSON
+    # ===============================
+    location ^~ /media/ {{
+      rewrite_by_lua_block {{
+        ngx.log(ngx.ERR, "INLINE REWRITE HIT: ", ngx.var.request_uri)
+        cmcd_response_json.doResponse()
+      }}
+			
+      content_by_lua_block {{
+        ngx.exit(204)
+      }}
+    }}
+  
+#  rewrite_by_lua_block {{
+#    ngx.log(ngx.ERR, "SERVER REWRITE HIT: ", ngx.var.request_uri)
+#  }}
+		
+#  log_by_lua_block {{
+#    ngx.log(ngx.ERR, "LOG PHASE HIT: ", ngx.var.request_uri)
+#  }}
   }}
 }}
